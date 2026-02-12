@@ -1,0 +1,57 @@
+{
+  "name": "mcp-server-acube",
+  "version": "0.1.0",
+  "description": "MCP server for A-Cube API - Italian electronic invoicing (SDI/FatturaPA), smart receipts, company verification, and more",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "mcp-server-acube": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "prepublishOnly": "npm run build",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "acube",
+    "fattura-elettronica",
+    "fatturapa",
+    "sdi",
+    "e-invoicing",
+    "italian-invoicing",
+    "agenzia-entrate",
+    "claude",
+    "ai"
+  ],
+  "author": "Cipay Srl <dev@cipay.it> (https://www.cipay.it)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nick-preda/mcp-server-acube.git"
+  },
+  "bugs": {
+    "url": "https://github.com/nick-preda/mcp-server-acube/issues"
+  },
+  "homepage": "https://github.com/nick-preda/mcp-server-acube#readme",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.7.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "vitest": "^4.0.18"
+  }
+}
