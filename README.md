@@ -425,6 +425,7 @@ The following events can be subscribed to via `create_webhook_config`:
 
 ## Links
 
+- [npm package](https://www.npmjs.com/package/mcp-server-acube)
 - [A-Cube API Documentation](https://docs.acubeapi.com/)
 - [A-Cube Website](https://www.acubeapi.com/)
 - [Model Context Protocol (MCP)](https://modelcontextprotocol.io)
