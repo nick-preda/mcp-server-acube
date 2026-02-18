@@ -166,7 +166,7 @@ describe("list_invoices", () => {
 
     const params = getCalledParams();
     expect(params.get("page")).toBe("1");
-    expect(params.get("itemsPerPage")).toBe("30");
+    expect(params.get("itemsPerPage")).toBe("10");
     expect(result.isError).toBeUndefined();
   });
 
@@ -432,11 +432,11 @@ describe("list_invoices", () => {
       data: { items: [] },
     });
 
-    await callTool(mcpClient, "list_invoices", { page: 5, items_per_page: 100 });
+    await callTool(mcpClient, "list_invoices", { page: 5, items_per_page: 25 });
 
     const params = getCalledParams();
     expect(params.get("page")).toBe("5");
-    expect(params.get("itemsPerPage")).toBe("100");
+    expect(params.get("itemsPerPage")).toBe("25");
   });
 
   // ── Individual date range filters ──
@@ -508,7 +508,7 @@ describe("list_invoices", () => {
       data: responseData,
     });
 
-    // fields: ["*"] bypasses enrichInvoices + pickFields, returning full data
+    // fields: ["*"] skips pickFields but still enriches + strips nulls
     const result = await callTool(mcpClient, "list_invoices", { marking: "delivered", fields: ["*"] });
 
     expect(result.isError).toBeUndefined();
@@ -582,7 +582,7 @@ describe("list_invoices", () => {
     const params = getCalledParams();
     // Only pagination defaults should be present
     expect(params.get("page")).toBe("1");
-    expect(params.get("itemsPerPage")).toBe("30");
+    expect(params.get("itemsPerPage")).toBe("10");
     // Verify ALL optional params are absent
     expect(params.has("marking")).toBe(false);
     expect(params.has("sender.business_name")).toBe(false);
@@ -620,6 +620,174 @@ describe("list_invoices", () => {
 
     expect(result.isError).toBe(true);
     expect((result.content as any)[0].text).toBe("string error");
+  });
+
+  // ── Payload enrichment & optimization ──
+
+  /** Realistic API response with a FatturaPA payload string */
+  const invoiceWithPayload = {
+    uuid: "inv-payload-1",
+    created_at: "2026-02-18T09:31:13+00:00",
+    type: 0,
+    marking: "delivered",
+    document_type: "TD01",
+    notice: null,
+    payload: JSON.stringify({
+      fattura_elettronica_header: {
+        dati_trasmissione: {
+          id_trasmittente: { id_paese: "IT", id_codice: "03090780218" },
+          progressivo_invio: "00001",
+          formato_trasmissione: "FPR12",
+          codice_destinatario: "0000000",
+          pec_destinatario: null,
+        },
+        cedente_prestatore: {
+          dati_anagrafici: {
+            id_fiscale_iva: { id_paese: "IT", id_codice: "03090780218" },
+            codice_fiscale: null,
+            anagrafica: { denominazione: "Test Sender Srl", nome: null, cognome: null },
+          },
+        },
+        cessionario_committente: {
+          dati_anagrafici: {
+            codice_fiscale: "RSSMRA80A01H501Z",
+            anagrafica: { denominazione: "Test Recipient Spa", nome: null, cognome: null },
+          },
+          sede: { indirizzo: "Via Roma 1", cap: "39100", comune: "Bolzano", provincia: "BZ", nazione: "IT" },
+        },
+      },
+      fattura_elettronica_body: [
+        {
+          dati_generali: {
+            dati_generali_documento: {
+              tipo_documento: "TD01",
+              divisa: "EUR",
+              data: "2026-02-18",
+              numero: "2026/42",
+              importo_totale_documento: 1220.0,
+              arrotondamento: null,
+              causale: null,
+            },
+            dati_ordine_acquisto: null,
+            dati_contratto: null,
+            dati_trasporto: null,
+          },
+          dati_beni_servizi: {
+            dettaglio_linee: [
+              { numero_linea: 1, descrizione: "Servizio consulenza", quantita: 1, prezzo_unitario: 1000.0, prezzo_totale: 1000.0, aliquota_iva: 22.0, ritenuta: null },
+            ],
+            dati_riepilogo: [
+              { aliquota_iva: 22.0, imponibile_importo: 1000.0, imposta: 220.0, esigibilita_iva: null, riferimento_normativo: null },
+            ],
+          },
+          dati_pagamento: null,
+          allegati: null,
+        },
+      ],
+    }),
+    sender: {
+      business_name: "Test Sender Srl",
+      business_vat_number_code: "03090780218",
+      business_fiscal_code: null,
+      business_vat_number_country: "IT",
+      business_registered_office_address: null,
+    },
+    recipient: {
+      business_name: "Test Recipient Spa",
+      business_vat_number_code: null,
+      business_fiscal_code: "RSSMRA80A01H501Z",
+      business_vat_number_country: null,
+      business_registered_office_address: null,
+    },
+    notifications: [],
+    sdi_file_name: "IT03090780218_00001.xml",
+    signed: false,
+    downloaded: false,
+  };
+
+  it("should parse payload string and extract enriched fields with default fields", async () => {
+    vi.mocked(mockClient.get).mockResolvedValueOnce({
+      status: 200,
+      data: [invoiceWithPayload],
+    });
+
+    const result = await callTool(mcpClient, "list_invoices", {});
+
+    expect(result.isError).toBeUndefined();
+    const parsed = JSON.parse((result.content as any)[0].text);
+    const invoice = parsed[0];
+
+    // Enriched fields extracted from payload
+    expect(invoice.invoice_number).toBe("2026/42");
+    expect(invoice.invoice_date).toBe("2026-02-18");
+    expect(invoice.total_amount).toBe(1220.0);
+    expect(invoice.currency).toBe("EUR");
+
+    // Default fields present
+    expect(invoice.uuid).toBe("inv-payload-1");
+    expect(invoice.marking).toBe("delivered");
+    expect(invoice.sender).toEqual({ business_name: "Test Sender Srl", business_vat_number_code: "03090780218" });
+
+    // Payload itself excluded from default fields
+    expect(invoice.payload).toBeUndefined();
+  });
+
+  it("should parse payload and strip nulls with fields:['*']", async () => {
+    vi.mocked(mockClient.get).mockResolvedValueOnce({
+      status: 200,
+      data: [invoiceWithPayload],
+    });
+
+    const result = await callTool(mcpClient, "list_invoices", { fields: ["*"] });
+
+    expect(result.isError).toBeUndefined();
+    const parsed = JSON.parse((result.content as any)[0].text);
+    const invoice = parsed[0];
+
+    // Payload is a parsed object, NOT a raw string
+    expect(typeof invoice.payload).toBe("object");
+    expect(invoice.payload.fattura_elettronica_header).toBeDefined();
+
+    // Nulls stripped from parsed payload
+    expect(invoice.payload.fattura_elettronica_header.dati_trasmissione.pec_destinatario).toBeUndefined();
+    expect(invoice.payload.fattura_elettronica_body[0].dati_generali.dati_ordine_acquisto).toBeUndefined();
+    expect(invoice.payload.fattura_elettronica_body[0].dati_pagamento).toBeUndefined();
+
+    // Nulls stripped from top-level fields too
+    expect(invoice.notice).toBeUndefined();
+    expect(invoice.sender.business_fiscal_code).toBeUndefined();
+    expect(invoice.recipient.business_vat_number_code).toBeUndefined();
+
+    // Enriched fields present
+    expect(invoice.invoice_number).toBe("2026/42");
+    expect(invoice.total_amount).toBe(1220.0);
+  });
+
+  it("should handle malformed payload JSON gracefully", async () => {
+    vi.mocked(mockClient.get).mockResolvedValueOnce({
+      status: 200,
+      data: [{ uuid: "inv-bad", payload: "not-valid-json{{{", marking: "sent" }],
+    });
+
+    const result = await callTool(mcpClient, "list_invoices", { fields: ["*"] });
+
+    expect(result.isError).toBeUndefined();
+    const parsed = JSON.parse((result.content as any)[0].text);
+    // Malformed payload preserved as-is (string), no crash
+    expect(parsed[0].payload).toBe("not-valid-json{{{");
+    expect(parsed[0].uuid).toBe("inv-bad");
+  });
+
+  it("should reject items_per_page above max (30)", async () => {
+    const result = await callTool(mcpClient, "list_invoices", { items_per_page: 100 });
+
+    expect(result.isError).toBe(true);
+  });
+
+  it("should reject items_per_page below min (1)", async () => {
+    const result = await callTool(mcpClient, "list_invoices", { items_per_page: 0 });
+
+    expect(result.isError).toBe(true);
   });
 
   // ── URL path verification ──
@@ -717,6 +885,91 @@ describe("get_invoice", () => {
         headers: { "X-PrintTheme": "elegant" },
       },
     );
+  });
+
+  it("should parse payload and strip nulls in JSON response", async () => {
+    const invoiceData = {
+      uuid,
+      marking: "delivered",
+      notice: null,
+      payload: JSON.stringify({
+        fattura_elettronica_header: { dati_trasmissione: { pec_destinatario: null } },
+        fattura_elettronica_body: [{
+          dati_generali: {
+            dati_generali_documento: {
+              numero: "2026/1",
+              data: "2026-01-15",
+              importo_totale_documento: 500.0,
+              divisa: "EUR",
+              arrotondamento: null,
+            },
+            dati_trasporto: null,
+          },
+          dati_pagamento: null,
+        }],
+      }),
+      sender: { business_name: "Acme", business_fiscal_code: null },
+    };
+
+    vi.mocked(mockClient.get).mockResolvedValueOnce({
+      status: 200,
+      data: invoiceData,
+    });
+
+    const result = await callTool(mcpClient, "get_invoice", { uuid });
+
+    const parsed = JSON.parse((result.content as any)[0].text);
+
+    // Payload parsed into object, not string
+    expect(typeof parsed.payload).toBe("object");
+
+    // Nulls stripped
+    expect(parsed.notice).toBeUndefined();
+    expect(parsed.sender.business_fiscal_code).toBeUndefined();
+    expect(parsed.payload.fattura_elettronica_body[0].dati_pagamento).toBeUndefined();
+
+    // Enriched fields added
+    expect(parsed.invoice_number).toBe("2026/1");
+    expect(parsed.invoice_date).toBe("2026-01-15");
+    expect(parsed.total_amount).toBe(500.0);
+    expect(parsed.currency).toBe("EUR");
+  });
+
+  it("should support field selection on enriched invoice", async () => {
+    const invoiceData = {
+      uuid,
+      marking: "delivered",
+      payload: JSON.stringify({
+        fattura_elettronica_header: {},
+        fattura_elettronica_body: [{
+          dati_generali: {
+            dati_generali_documento: {
+              numero: "2026/7",
+              data: "2026-03-01",
+              importo_totale_documento: 750.0,
+              divisa: "EUR",
+            },
+          },
+        }],
+      }),
+    };
+
+    vi.mocked(mockClient.get).mockResolvedValueOnce({
+      status: 200,
+      data: invoiceData,
+    });
+
+    const result = await callTool(mcpClient, "get_invoice", {
+      uuid,
+      fields: ["uuid", "invoice_number", "total_amount"],
+    });
+
+    const parsed = JSON.parse((result.content as any)[0].text);
+    expect(parsed).toEqual({
+      uuid,
+      invoice_number: "2026/7",
+      total_amount: 750.0,
+    });
   });
 
   it("should return isError on failure", async () => {

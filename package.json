@@ -1,6 +1,6 @@
 {
   "name": "mcp-server-acube",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "MCP server for A-Cube API - Italian electronic invoicing (SDI/FatturaPA), smart receipts, company verification, and more",
   "type": "module",
   "main": "dist/index.js",

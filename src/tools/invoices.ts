@@ -47,32 +47,44 @@ const LIST_INVOICES_DEFAULT_FIELDS = [
 ];
 
 /**
- * Parse the `payload` JSON string in each invoice and extract commonly needed
- * fields as top-level properties, so they can be selected via `fields` without
- * requiring the full payload blob.
+ * Parse the `payload` JSON string and extract commonly needed fields as
+ * top-level properties. Also replaces the raw payload string with a parsed
+ * object so that {@link stripEmpty} can remove the ~60 null fields inside it,
+ * cutting token usage by ~50%.
+ *
+ * Works on both arrays (list_invoices) and single objects (get_invoice).
  */
 function enrichInvoices(data: unknown): unknown {
-  if (!Array.isArray(data)) return data;
+  if (Array.isArray(data)) {
+    return data.map((item) => enrichSingle(item as Record<string, unknown>));
+  }
 
-  return data.map((item: Record<string, unknown>) => {
-    if (typeof item.payload !== "string") return item;
+  if (data && typeof data === "object") {
+    return enrichSingle(data as Record<string, unknown>);
+  }
 
-    try {
-      const parsed = JSON.parse(item.payload);
-      const body = parsed?.fattura_elettronica_body?.[0];
-      const doc = body?.dati_generali?.dati_generali_documento;
+  return data;
+}
 
-      return {
-        ...item,
-        invoice_number: doc?.numero ?? null,
-        invoice_date: doc?.data ?? null,
-        total_amount: doc?.importo_totale_documento ?? null,
-        currency: doc?.divisa ?? null,
-      };
-    } catch {
-      return item;
-    }
-  });
+function enrichSingle(item: Record<string, unknown>): Record<string, unknown> {
+  if (typeof item.payload !== "string") return item;
+
+  try {
+    const parsed = JSON.parse(item.payload);
+    const body = parsed?.fattura_elettronica_body?.[0];
+    const doc = body?.dati_generali?.dati_generali_documento;
+
+    return {
+      ...item,
+      payload: parsed, // parsed object instead of raw string → enables null stripping
+      invoice_number: doc?.numero ?? null,
+      invoice_date: doc?.data ?? null,
+      total_amount: doc?.importo_totale_documento ?? null,
+      currency: doc?.divisa ?? null,
+    };
+  } catch {
+    return item;
+  }
 }
 
 export function registerInvoiceTools(
@@ -141,11 +153,11 @@ export function registerInvoiceTools(
   server.tool(
     "list_invoices",
     "List/search SDI invoices. Filters: sender/recipient name or VAT, invoice number, " +
-      "document type, direction, status, date ranges. Default response is compact (key fields only). " +
-      "Use fields:['*'] for full data.",
+      "document type, direction, status, date ranges. Default compact view returns key fields only. " +
+      "Add specific extra fields if needed. Use fields:['*'] only when full FatturaPA payload is required.",
     {
       page: z.number().optional().default(1).describe("Page number"),
-      items_per_page: z.number().optional().default(30).describe("Items per page"),
+      items_per_page: z.number().min(1).max(30).optional().default(10).describe("Items per page (default 10, max 30)"),
       marking: z
         .string()
         .optional()
@@ -171,11 +183,10 @@ export function registerInvoiceTools(
         .array(z.string())
         .optional()
         .describe(
-          "Fields to return per invoice (dot-notation supported). " +
-          "Default: uuid, created_at, document_type, marking, notice, invoice_number, invoice_date, " +
-          "total_amount, currency, sender.business_name, sender.business_vat_number_code, " +
-          "recipient.business_name, recipient.business_vat_number_code, notifications. " +
-          "Use ['*'] for full response. Extra: payload, sender, recipient, sdi_file_name, signed, downloaded.",
+          "Fields to return (dot-notation supported, e.g. 'sender.business_name'). " +
+          "Default compact view: uuid, created_at, document_type, marking, notice, invoice_number, " +
+          "invoice_date, total_amount, currency, sender/recipient names+VAT, notifications. " +
+          "Prefer adding specific fields over ['*']. Use ['*'] only when full FatturaPA payload is truly needed.",
         ),
     },
     async (params) => {
@@ -207,15 +218,12 @@ export function registerInvoiceTools(
           `/invoices?${query.toString()}`,
         );
 
-        let data = response.data;
+        let data = enrichInvoices(response.data);
         const wantAll = params.fields?.length === 1 && params.fields[0] === "*";
-        if (wantAll) {
-          return formatResponse(data);
+        if (!wantAll) {
+          const selectedFields = params.fields ?? LIST_INVOICES_DEFAULT_FIELDS;
+          data = pickFields(data, selectedFields);
         }
-
-        data = enrichInvoices(data);
-        const selectedFields = params.fields ?? LIST_INVOICES_DEFAULT_FIELDS;
-        data = pickFields(data, selectedFields);
         return formatResponse(data);
       } catch (error: unknown) {
         return errorResponse(error);
@@ -268,7 +276,8 @@ export function registerInvoiceTools(
           };
         }
 
-        return formatResponse(response.data, params.fields);
+        const invoiceData = enrichInvoices(response.data);
+        return formatResponse(invoiceData, params.fields);
       } catch (error: unknown) {
         return errorResponse(error);
       }
