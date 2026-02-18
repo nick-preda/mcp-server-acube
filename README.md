@@ -169,17 +169,21 @@ The server is configured through environment variables:
 
 This server is designed to minimize LLM token consumption. Every response goes through three optimizations:
 
-### 1. Null stripping
+### 1. Payload parsing
 
-All `null` and `undefined` values are recursively removed from responses. A typical invoice `sender` object has ~40 fields, of which ~30 are null. After stripping, only the 5--8 populated fields remain.
+The A-Cube API returns the FatturaPA invoice data as a raw JSON string in the `payload` field. The server automatically parses this string into a structured object, which enables null stripping to work on the ~60 null fields inside it. This eliminates double-encoding overhead (`\"` escapes) and typically cuts payload token usage by ~50%.
 
-### 2. Compact JSON
+### 2. Null stripping
+
+All `null` and `undefined` values are recursively removed from responses -- including inside the parsed payload. A typical invoice `sender` object has ~40 fields, of which ~30 are null. After stripping, only the 5--8 populated fields remain.
+
+### 3. Compact JSON
 
 Responses are serialized without indentation (`JSON.stringify(data)` instead of `JSON.stringify(data, null, 2)`). This eliminates whitespace tokens that provide no information to the LLM.
 
-### 3. Default field selection on `list_invoices`
+### 4. Default field selection on `list_invoices`
 
-The `list_invoices` tool returns a **compact default view** instead of the full A-Cube response. The raw API response includes the entire FatturaPA payload (~2000 tokens per invoice) and full sender/recipient objects. The compact view extracts only the essential fields:
+The `list_invoices` tool returns a **compact default view** (10 items per page) instead of the full A-Cube response. The raw API response includes the entire FatturaPA payload (~2000 tokens per invoice) and full sender/recipient objects. The compact view extracts only the essential fields:
 
 | Default field | Description |
 |---|---|
@@ -211,7 +215,7 @@ list_invoices(marking: "rejected")
 # Request specific fields
 list_invoices(marking: "rejected", fields: ["uuid", "notice", "recipient.business_name"])
 
-# Request all fields (full A-Cube response, nulls still stripped)
+# Request all fields (payload parsed + nulls stripped)
 list_invoices(marking: "rejected", fields: ["*"])
 
 # Get specific fields from a single invoice
@@ -220,16 +224,28 @@ get_invoice(uuid: "...", fields: ["payload", "sender", "recipient"])
 
 The `fields` parameter supports **dot-notation** for nested objects (e.g., `sender.business_name`).
 
+> **Tip:** Prefer the default compact view or specific fields over `["*"]`. Even with `["*"]`, the server parses payloads and strips nulls, but the full FatturaPA structure is still large. Use `["*"]` only when you truly need the complete invoice data.
+
+### Pagination
+
+`list_invoices` defaults to **10 items per page** (`items_per_page`, max 30). Use the `page` parameter to navigate through results.
+
 ### Estimated token savings
 
 For a typical `list_invoices` call returning 10 invoices:
 
-| Metric | Without optimization | With optimization |
+| Scenario | Without optimization | With optimization |
 |---|---|---|
-| Null fields per invoice | ~60 | 0 |
-| Payload per invoice | ~2000 tokens | 0 (excluded) |
-| JSON whitespace | ~500 tokens | 0 |
-| **Total** | **~25,000 tokens** | **~1,500 tokens** |
+| **Default view** (compact fields) | ~25,000 tokens | **~1,500 tokens** |
+| **`fields: ["*"]`** (full data) | ~25,000 tokens | **~10,000 tokens** |
+
+Key reductions with `fields: ["*"]`:
+
+| Metric | Before | After |
+|---|---|---|
+| Null fields per invoice | ~60 | 0 (stripped) |
+| Payload encoding | Double-encoded string (`\"`) | Parsed object (no escaping) |
+| Payload null fields | ~60 (hidden in string) | 0 (stripped) |
 
 ## Usage Examples
 
