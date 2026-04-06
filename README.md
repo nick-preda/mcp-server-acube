@@ -93,7 +93,7 @@ The server is configured through environment variables:
 |---|---|
 | `send_invoice` | Send a FatturaPA electronic invoice to SDI. Accepts the complete FatturaPA JSON object. Returns the UUID assigned by SDI (HTTP 202). Supports optional digital signing. |
 | `send_simplified_invoice` | Send a simplified FatturaPA invoice (fattura semplificata) for amounts up to 400 EUR. |
-| `list_invoices` | List and filter invoices with 20+ filters (sender/recipient name, VAT, status, date ranges, etc.). Returns a **compact default view** -- see [Response Optimization](#response-optimization). |
+| `list_invoices` | List and filter invoices with 20+ filters (sender/recipient name, VAT, status, date ranges, invoice series, etc.). Returns a **compact default view** -- see [Response Optimization](#response-optimization). |
 | `get_invoice` | Retrieve a specific invoice by UUID. Output formats: JSON, XML (FatturaPA), PDF (base64), or HTML. Supports field selection. |
 
 ### Invoice Extraction (3 tools)
@@ -203,6 +203,20 @@ The `list_invoices` tool returns a **compact default view** (10 items per page) 
 | `notifications` | Array of SDI notifications (type + date) |
 
 The `invoice_number`, `invoice_date`, `total_amount`, and `currency` fields are **computed** by parsing the FatturaPA payload JSON on the server side, so they're available without transferring the entire payload.
+
+### Filtering by invoice series
+
+Italian invoice numbers often include a series suffix (e.g. `1/Servizi`, `2026/100/CI`, `3/cipay`). The API's `invoice_number` filter does a partial match, which can return unrelated series. The `invoice_series` parameter solves this by post-filtering results to match only invoices whose number ends with the exact series suffix:
+
+```
+# Only returns "1/Servizi", "2/Servizi", etc. -- not "2026/100/CI"
+list_invoices(sender_vat: "01234567890", invoice_series: "Servizi")
+
+# Only returns invoices in the /CI series
+list_invoices(sender_vat: "01234567890", invoice_series: "CI")
+```
+
+The match is exact on the part after the last `/` in the invoice number.
 
 ### Using the `fields` parameter
 
