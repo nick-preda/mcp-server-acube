@@ -153,8 +153,9 @@ export function registerInvoiceTools(
   server.tool(
     "list_invoices",
     "List/search SDI invoices. Filters: sender/recipient name or VAT, invoice number, " +
-      "document type, direction, status, date ranges. Default compact view returns key fields only. " +
-      "Add specific extra fields if needed. Use fields:['*'] only when full FatturaPA payload is required.",
+      "document type, direction, status, date ranges. Use invoice_series to filter by exact series " +
+      "suffix (e.g. 'Servizi' matches only '1/Servizi', not '100/CI'). Default compact view returns " +
+      "key fields only. Add specific extra fields if needed. Use fields:['*'] only when full FatturaPA payload is required.",
     {
       page: z.number().optional().default(1).describe("Page number"),
       items_per_page: z.number().min(1).max(30).optional().default(10).describe("Items per page (default 10, max 30)"),
@@ -168,7 +169,8 @@ export function registerInvoiceTools(
       recipient_name: z.string().optional().describe("Recipient business name (partial match)"),
       recipient_vat: z.string().optional().describe("Recipient P.IVA"),
       recipient_fiscal_code: z.string().optional().describe("Recipient codice fiscale"),
-      invoice_number: z.string().optional().describe("Invoice number (partial match)"),
+      invoice_number: z.string().optional().describe("Invoice number (partial match via API)"),
+      invoice_series: z.string().optional().describe("Post-filter: invoice series suffix (e.g. 'Servizi' matches '1/Servizi', '2/Servizi'). Exact match on the part after the last '/'"),
       document_type: z.string().optional().describe("FatturaPA type: TD01, TD04, TD05, TD06, TD07..."),
       direction: z.enum(["outgoing", "incoming"]).optional().describe("outgoing or incoming"),
       invoice_date_from: z.string().optional().describe("Invoice date >= (ISO date)"),
@@ -219,6 +221,18 @@ export function registerInvoiceTools(
         );
 
         let data = enrichInvoices(response.data);
+
+        // Post-filter by invoice series suffix (e.g. "Servizi" matches "1/Servizi")
+        if (params.invoice_series && Array.isArray(data)) {
+          const series = params.invoice_series;
+          data = data.filter((inv: Record<string, unknown>) => {
+            const num = inv.invoice_number as string | null;
+            if (!num) return false;
+            const parts = num.split("/");
+            return parts.length > 1 && parts[parts.length - 1] === series;
+          });
+        }
+
         const wantAll = params.fields?.length === 1 && params.fields[0] === "*";
         if (!wantAll) {
           const selectedFields = params.fields ?? LIST_INVOICES_DEFAULT_FIELDS;
