@@ -66,6 +66,17 @@ export class AcubeClient {
   }
 
   /**
+   * Returns the configured environment (`"production"` or `"sandbox"`).
+   *
+   * Exposed so tools can echo the active environment back in their responses
+   * (e.g. `send_invoice`), making it unambiguous whether an operation hit the
+   * live SDI or the sandbox.
+   */
+  getEnvironment(): AcubeEnvironment {
+    return this.config.environment;
+  }
+
+  /**
    * Authenticate with A-Cube and cache the JWT token.
    *
    * The token has a 24h lifetime. We cache it for 23h to avoid edge-case

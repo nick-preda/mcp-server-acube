@@ -51,7 +51,7 @@ describe("send_invoice", () => {
     expect(result.isError).toBeUndefined();
     expect(result.content).toHaveLength(1);
     const text = (result.content as any)[0].text;
-    expect(JSON.parse(text)).toEqual({ uuid: "inv-uuid-123" });
+    expect(JSON.parse(text)).toEqual({ uuid: "inv-uuid-123", environment: "sandbox" });
   });
 
   it("should set X-SignInvoice header when sign=true", async () => {
@@ -125,7 +125,7 @@ describe("send_simplified_invoice", () => {
     );
     expect(result.isError).toBeUndefined();
     const text = (result.content as any)[0].text;
-    expect(JSON.parse(text)).toEqual({ uuid: "simplified-uuid-456" });
+    expect(JSON.parse(text)).toEqual({ uuid: "simplified-uuid-456", environment: "sandbox" });
   });
 
   it("should return isError on failure", async () => {

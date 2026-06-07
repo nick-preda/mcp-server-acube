@@ -85,6 +85,54 @@ The server is configured through environment variables:
 | `ACUBE_PASSWORD` | Yes | -- | Your A-Cube account password |
 | `ACUBE_ENVIRONMENT` | No | `sandbox` | API environment: `sandbox` or `production` |
 
+## Production vs Sandbox
+
+A-Cube uses the **same account credentials** for both environments. The only
+thing that switches environment is the `ACUBE_ENVIRONMENT` variable, which
+routes requests to the matching base URLs:
+
+| Environment | Auth (`common`) | API (`govIt`) |
+|---|---|---|
+| `sandbox` | `common-sandbox.api.acubeapi.com` | `api-sandbox.acubeapi.com` |
+| `production` | `common.api.acubeapi.com` | `api.acubeapi.com` |
+
+So to use the same credentials for testing, just set
+`ACUBE_ENVIRONMENT=sandbox` — no separate sandbox login is required.
+
+**Running both at once.** Register **two MCP servers**, one per environment,
+with identical credentials and different `ACUBE_ENVIRONMENT` values:
+
+```jsonc
+{
+  "mcpServers": {
+    "acube-sandbox": {
+      "command": "npx",
+      "args": ["-y", "mcp-server-acube"],
+      "env": { "ACUBE_EMAIL": "...", "ACUBE_PASSWORD": "...", "ACUBE_ENVIRONMENT": "sandbox" }
+    },
+    "acube-production": {
+      "command": "npx",
+      "args": ["-y", "mcp-server-acube"],
+      "env": { "ACUBE_EMAIL": "...", "ACUBE_PASSWORD": "...", "ACUBE_ENVIRONMENT": "production" }
+    }
+  }
+}
+```
+
+**Knowing which environment you are in.** To prevent an agent from confusing the
+two on irreversible operations, the server makes the active environment visible
+in three ways:
+
+- The server **instructions** state the active environment.
+- Every **tool description** is prefixed with `[SANDBOX]` or `[PRODUCTION]`
+  (live-write tools in production get `[PRODUCTION - LIVE WRITE, irreversible]`).
+- `send_invoice` / `send_simplified_invoice` echo an `"environment"` field in
+  their response.
+
+> ⚠️ **Always test a new invoice in sandbox first, then resend in production.**
+> A production `send_invoice` submits a real, irreversible invoice to SDI;
+> correcting it requires issuing a credit note.
+
 ## Available Tools
 
 ### Invoices (4 tools)

@@ -119,7 +119,7 @@ export function registerInvoiceTools(
           { headers },
         );
 
-        return formatResponse(response.data);
+        return formatResponse({ ...response.data, environment: client.getEnvironment() });
       } catch (error: unknown) {
         return errorResponse(error);
       }
@@ -142,7 +142,7 @@ export function registerInvoiceTools(
           params.invoice,
         );
 
-        return formatResponse(response.data);
+        return formatResponse({ ...response.data, environment: client.getEnvironment() });
       } catch (error: unknown) {
         return errorResponse(error);
       }

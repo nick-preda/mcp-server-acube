@@ -9,5 +9,6 @@ export function createMockClient() {
     delete: vi.fn().mockResolvedValue({ status: 200, data: {} }),
     request: vi.fn().mockResolvedValue({ status: 200, data: {} }),
     getBaseUrl: vi.fn().mockReturnValue("https://api-sandbox.acubeapi.com"),
+    getEnvironment: vi.fn().mockReturnValue("sandbox"),
   } as unknown as AcubeClient;
 }
